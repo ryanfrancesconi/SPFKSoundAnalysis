@@ -2,14 +2,23 @@
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
+import Foundation
 
 // Swift target
 private let name: String = "SPFKSoundAnalysis"
-
+private let dependencyNames: [String] = ["SPFKBase", "SFKAudioBase", "SPFKTesting"]
+private let dependencyBranch = "main"
+private let useLocalDependencies: Bool = false
 private let platforms: [PackageDescription.SupportedPlatform]? = [
     .macOS(.v12),
-    .iOS(.v15)
+    .iOS(.v15),
 ]
+
+
+// MARK: - Reusable Code for single package
+
+private let nameTests: String = "\(name)Tests" // Test target
+private let githubBase = "https://github.com/ryanfrancesconi"
 
 private let products: [PackageDescription.Product] = [
     .library(
@@ -18,46 +27,68 @@ private let products: [PackageDescription.Product] = [
     )
 ]
 
-private let spmRelease = false
+private var packageDependencies: [PackageDescription.Package.Dependency] {
+     let local: [PackageDescription.Package.Dependency] =
+        dependencyNames.map {
+            .package(name: "\($0)", path: "../\($0)")
+        }
 
-private let local_dependencies: [PackageDescription.Package.Dependency] = [
-    .package(name: "SPFKBase", path: "../SPFKBase"),
-    .package(name: "SPFKAudioBase", path: "../SPFKAudioBase"),
-    .package(name: "SPFKTesting", path: "../SPFKTesting"),
-]
-
-private let remote_dependencies: [PackageDescription.Package.Dependency] = [
-     .package(url: "https://github.com/ryanfrancesconi/SPFKBase", branch: "main"),
-     .package(url: "https://github.com/ryanfrancesconi/SPFKAudioBase", branch: "main"),
-     .package(url: "https://github.com/ryanfrancesconi/SPFKTesting", branch: "main"),
-]
-
-private var dependencies: [PackageDescription.Package.Dependency] {
-    spmRelease ?
-        remote_dependencies :
-        local_dependencies
+        
+     let remote: [PackageDescription.Package.Dependency] =
+        dependencyNames.map {
+            .package(url: "\(githubBase)/\($0)", branch: dependencyBranch)
+        }
+    
+    return useLocalDependencies ? local : remote
 }
 
-private let targets: [PackageDescription.Target] = [
-    // Swift
-    .target(
-        name: name,
-        dependencies: [
-            .byNameItem(name: "SPFKBase", condition: nil),
-            .byNameItem(name: "SPFKAudioBase", condition: nil)
-        ]
-    ),
+// is there a Sources/[NAME]/Resources folder?
+private var swiftTargetResources: [PackageDescription.Resource]? {
+    // package folder
+    let root = URL(fileURLWithPath: #file).deletingLastPathComponent()
     
-    .testTarget(
-        name: "\(name)Tests",
-        dependencies: [
-            .byNameItem(name: name, condition: nil),
-            .byNameItem(name: "SPFKTesting", condition: nil)
-        ],
-        resources: [
-            .process("Resources")
-        ]
-    )
+    let dir = root.appending(component: "Sources")
+        .appending(component: name)
+        .appending(component: "Resources")
+    
+    let exists = FileManager.default.fileExists(atPath: dir.path)
+    
+    return exists ? [.process("Resources")] : nil
+}
+
+private var swiftTargetDependencies: [PackageDescription.Target.Dependency] {
+    let names = dependencyNames.filter { $0 != "SPFKTesting" }
+    
+    return names.map {
+        .byNameItem(name: "\($0)", condition: nil)
+    }
+}
+
+private let swiftTarget: PackageDescription.Target = .target(
+    name: name,
+    dependencies: swiftTargetDependencies,
+    resources: swiftTargetResources
+)
+
+private var testTargetDependencies: [PackageDescription.Target.Dependency] {
+    var array: [PackageDescription.Target.Dependency] = [
+        .byNameItem(name: name, condition: nil),
+    ]
+
+    if dependencyNames.contains("SPFKTesting") {
+        array.append(.byNameItem(name: "SPFKTesting", condition: nil))
+    }
+    
+    return array
+}
+
+private let testTarget: PackageDescription.Target = .testTarget(
+    name: nameTests,
+    dependencies: testTargetDependencies
+)
+
+private let targets: [PackageDescription.Target] = [
+    swiftTarget, testTarget
 ]
 
 let package = Package(
@@ -65,7 +96,8 @@ let package = Package(
     defaultLocalization: "en",
     platforms: platforms,
     products: products,
-    dependencies: dependencies,
+    dependencies: packageDependencies,
     targets: targets,
     cxxLanguageStandard: .cxx20
 )
+
